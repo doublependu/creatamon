@@ -6,4 +6,6 @@ Write a script to autoplay the game, play as a human player and make a few game 
 2. a youtube short
 3. a video for X / twitter
 
+Use this opportunity to improve gameplay and fix any bug
+
 
