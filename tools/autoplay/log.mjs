@@ -22,16 +22,14 @@ export class Log {
   }
   line(text) { this.event('line', { text }); }
   input(kind, what, value) { this.inputs.write(`${JSON.stringify({ ...this.stamp(), kind, what, ...(value != null ? { value } : {}) })}\n`); }
-  // The numbers the scoreboard shows, from the save.
-  sample(S) {
-    if (!S || !S.party) return;
-    this.event('sample', {
-      map: S.map, x: S.x, y: S.y, play: Math.round(S.stats.time), badges: Object.keys(S.badges).length, money: S.money,
-      alphas: S.alphaWins || 0, wins: S.stats.wins, trainers: S.stats.trainers, champion: !!S.f.champion,
-      party: S.party.map((c) => [c.name, c.level, c.element]), trophies: Object.keys(S.trophies).length,
-      cards: Object.values(S.cards).reduce((a, b) => a + b, 0) + S.party.reduce((n, c) => n + c.moves.length + c.hpCards.length, 0),
-    });
-  }
+  sample(S) { if (S && S.party) this.event('sample', sampleOf(S)); }
   close() { return Promise.all([this.events, this.inputs].map((s) => new Promise((r) => s.end(r)))); }
 }
+// The numbers the scoreboard shows, from the save.
+export const sampleOf = (S) => ({
+  map: S.map, x: S.x, y: S.y, play: Math.round(S.stats.time), badges: Object.keys(S.badges).length, money: S.money,
+  alphas: S.alphaWins || 0, wins: S.stats.wins, trainers: S.stats.trainers, champion: !!S.f.champion,
+  party: S.party.map((c) => [c.name, c.level, c.element]), trophies: Object.keys(S.trophies).length,
+  cards: Object.values(S.cards).reduce((a, b) => a + b, 0) + S.party.reduce((n, c) => n + c.moves.length + c.hpCards.length, 0),
+});
 export const fmt = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };

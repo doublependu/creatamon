@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CM } from '../../src/world.js';
 import { recordMusic } from './music.mjs';
+import { sampleOf } from './log.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const args = process.argv.slice(2);
@@ -23,10 +24,16 @@ const FPS = 60;
 // Where the game sits in the 1920x1080 recording (see play.mjs: the game box at its largest, centred).
 const BOX = { x: 330, y: 78, w: 1260, h: 924 };
 const FONT = 'Noto Sans';
+// Every video comes out as standard HD: BT.709 at limited range, and says so. The master is full range BT.601, since
+// Chrome's screencast frames are JPEGs, and players that ignore those tags show the colours shifted.
+const HD = 'scale=out_range=tv:out_color_matrix=bt709,format=yuv420p';
+const HD_TAGS = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv'];
 // Where the game is played.
 const SITE = 'cmon.maize.live';
 const ff = (...a) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a.flat()], { stdio: ['ignore', 'ignore', 'inherit'] });
 const probe = (file) => +execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file]).toString();
+// The party's highest level, or a dash before the first Creatamon is forged.
+const topLevel = (party) => (party && party.length ? `${Math.max(...party.map((p) => p[1]))}` : '—');
 const clock = (s) => { s = Math.max(0, Math.floor(s)); return `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}:` : ''}${String(Math.floor(s / 60) % 60).padStart(Math.floor(s / 3600) ? 2 : 1, '0')}:${String(s % 60).padStart(2, '0')}`; };
 
 // ---------- What happened when, in seconds of the master ----------
@@ -38,6 +45,13 @@ function readRun() {
   const samples = rows.filter((r) => r.kind === 'sample').map((r) => ({ ...r, t: at(r) }));
   const events = rows.filter((r) => !['line', 'sample'].includes(r.kind)).map((r) => ({ ...r, t: at(r) }));
   const duration = probe(path.join(RUN, 'master.mkv'));
+  // End on the final save: the run's last change can come after the last sample (in recordings made before play.mjs
+  // took a sample at the end, the title Champion I came 2 s after it). It shows from the last line of text on.
+  const saved = path.join(RUN, 'final-save.json');
+  if (fs.existsSync(saved) && samples.length) {
+    const t = Math.min(duration, Math.max(samples[samples.length - 1].t, lines.length ? lines[lines.length - 1].t : 0));
+    samples.push({ ...sampleOf(JSON.parse(fs.readFileSync(saved, 'utf8'))), t });
+  }
   const find = (re) => lines.filter((l) => re.test(l.text));
   return { rows, lines, samples, events, duration, find };
 }
@@ -63,8 +77,12 @@ function keyMoments(run) {
     const l = first(re);
     if (l) add(l.t, 6, 10, 1, 'story');
   }
-  const champ = first(/is the new Champion of Galdra!$/);
-  if (champ) add(champ.t, 45, 8, 1, 'champion');
+  // The Cup final, cut short by the Blackest Night: from Vex walking out to the sky turning black.
+  const night = first(/^Champion Vex walks out/), sky = first(/^The sky turns black/);
+  if (night) add(night.t, 2, sky ? sky.t - night.t + 8 : 24, 1, 'story');
+  // The Champion battle, from the stadium filling three days later.
+  const champ = first(/is the new Champion of Galdra!$/), rematch = first(/^Three days later, the stadium/);
+  if (champ) add(champ.t, rematch && rematch.t < champ.t ? Math.min(90, champ.t - rematch.t + 1) : 45, 8, 1, 'champion');
   // The headline ranks: entry to the Cup, the top tier, and the Champion title.
   for (const l of run.find(/^Your Champion rank rose to (Warlord I|Mythic I|Champion I)!$/)) add(l.t, 8, 3, 1, 'rank');
   // The end: the final title and level.
@@ -102,11 +120,13 @@ const outTime = (cut, t) => { const g = cut.segs.find((s) => t >= s.a && t < s.b
 // ---------- Rendering ----------
 // One stretch of the master at a speed: the picture, and either its own sound (up to 3x) or a piece of the music bed.
 function renderSegment(g, i, bedFile, bedLen) {
-  const file = path.join(WORK, `seg${String(i).padStart(4, '0')}.mkv`);
-  if (fs.existsSync(file)) return file;
   const len = g.b - g.a, outLen = len / g.k;
-  const video = `setpts=(PTS-STARTPTS)/${g.k},fps=${FPS}`;
   const own = g.k <= 3.01;
+  // Named after what is in it (sped-up stretches take their music from where they land), so a changed cut never
+  // reuses a stale stretch.
+  const file = path.join(WORK, `seg${String(i).padStart(4, '0')}-${g.a}-${g.b}-${+g.k.toFixed(4)}${own ? '' : `-${g.out.toFixed(2)}`}.mkv`);
+  if (fs.existsSync(file)) return file;
+  const video = `setpts=(PTS-STARTPTS)/${g.k},fps=${FPS}`;
   const fade = Math.min(0.08, outLen / 4);
   const audio = own
     ? `${g.k > 1 ? `atempo=${g.k},` : ''}aresample=48000,afade=t=in:d=${fade},afade=t=out:st=${Math.max(0, outLen - fade)}:d=${fade}`
@@ -149,9 +169,8 @@ Style: Speed,${FONT},64,&H004F38E8,&H0,&H0,&H0,1,0,0,0,100,100,0,0,1,0,0,7,0,0,0
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i], a = outTime(cut, r.t), b = i + 1 < rows.length ? outTime(cut, rows[i + 1].t) : end;
     if (b - a < 0.05) continue;
-    const top = Math.max(...r.party.map((p) => p[1]));
     const title = CM.title(r.alphas, r.champion) || 'Unranked';
-    const lines = [['PLAY TIME', clock(r.play / 1000)], ['BADGES', `${r.badges} / 14`], ['TOP LEVEL', `${top}`],
+    const lines = [['PLAY TIME', clock(r.play / 1000)], ['BADGES', `${r.badges} / 14`], ['TOP LEVEL', topLevel(r.party)],
       ['CHAMPION RANK', title], ['ALPHAS BEATEN', `${r.alphas}`], ['BATTLES WON', `${r.wins}`]];
     lines.forEach(([k, v], j) => { put(a, b, 'Label', X, 100 + j * 96, k); put(a, b, 'Value', X, 124 + j * 96, v); });
     put(a, b, 'Label', X, 690, 'TEAM');
@@ -179,9 +198,10 @@ function chapterList(run, cut) {
   });
   const add = (re, name, before = 0) => { const l = run.find(re)[0]; if (l) list.push({ out: outTime(cut, l.t - before), name }); };
   add(/^Every badge in Galdra!/, 'The Champion Cup');
-  add(/^The sky turns black/, 'The Blackest Night');
+  // The Cup final ends as soon as Vex walks out: the Blackest Night falls.
+  add(/^Champion Vex walks out/, 'The Blackest Night', 2);
   add(/^Eternox bursts into light/, 'Dawn · hunting alphas for rank');
-  add(/^Champion Vex walks out|^Three days later, the stadium/, 'Champion Vex');
+  add(/^Three days later, the stadium/, 'Champion Vex');
   add(/is the new Champion of Galdra!$/, 'Champion · climbing the ranks');
   list.sort((a, b) => a.out - b.out);
   // YouTube wants chapters at least 10 s apart.
@@ -199,10 +219,17 @@ async function youtube(run, minutes) {
   // Panels over the dark margins (hiding the recorder's clap mark too), the scoreboard on top, sound at -14 LUFS.
   const panels = `drawbox=x=0:y=0:w=${BOX.x - 14}:h=1080:color=0x1d2437:t=fill,drawbox=x=${BOX.x + BOX.w + 14}:y=0:w=${1920 - BOX.x - BOX.w - 14}:h=1080:color=0x1d2437:t=fill,`
     + `drawbox=x=0:y=0:w=${BOX.x - 14}:h=8:color=0xe8384f:t=fill,drawbox=x=${BOX.x + BOX.w + 14}:y=0:w=${1920 - BOX.x - BOX.w - 14}:h=8:color=0xe8384f:t=fill`;
-  ff('-i', path.join(WORK, 'youtube-raw.mkv'), '-vf', `${panels},ass=${ass}`, '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11', '-ar', '48000',
-    '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', String(FPS),
+  ff('-i', path.join(WORK, 'youtube-raw.mkv'), '-vf', `${HD},${panels},ass=${ass}`, '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11', '-ar', '48000',
+    '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', String(FPS), HD_TAGS,
     '-c:a', 'aac', '-b:a', '320k', '-movflags', '+faststart', path.join(RUN, 'youtube.mp4'));
   return { cut, chapters: chapterList(run, cut) };
+}
+
+// The Champion's last Creatamon fainting: the run's big moment. (Lines are logged as shown: the speaker's name runs
+// straight into what they say.)
+function finalBlow(run) {
+  const won = run.find(/^Champion Vex:? ?\.\.\.My unbeaten run ends here/)[0];
+  return won && run.find(/^Champion Vex's .+ fainted!$/).filter((l) => l.t < won.t).pop();
 }
 
 // ---------- Short and X: highlights ----------
@@ -211,7 +238,9 @@ function highlights(run, long) {
   const clips = [];
   const at = (re, before, len, caption) => { const l = run.find(re)[0]; if (l) clips.push([l.t - before, len, caption]); return !!l; };
   // Hook: the final blow against the Champion, else the last badge.
-  if (!at(/^Champion Vex: \.\.\.My unbeaten run ends here/, 4.5, 4, 'Can a bot beat the Champion?')) {
+  const blow = finalBlow(run);
+  if (blow) clips.push([blow.t - 2.5, 4, 'Can a bot beat the Champion?']);
+  else {
     const last = run.find(/^You received the \w+ Badge/).pop();
     if (last) clips.push([last.t - 4, 4, 'A bot plays Creatamon']);
   }
@@ -236,8 +265,8 @@ async function montage(run, kind) {
   const gameH = Math.round(BOX.h * W / BOX.w), gameY = square ? 150 : 420;
   const parts = clips.map(([t, len], i) => {
     const file = path.join(WORK, `${kind}${String(i).padStart(2, '0')}.mkv`);
-    ff('-ss', t.toFixed(3), '-t', len.toFixed(3), '-i', path.join(RUN, 'master.mkv'), '-vf', `crop=${BOX.w}:${BOX.h}:${BOX.x}:${BOX.y},scale=${W}:${gameH},fps=${FPS},setpts=PTS-STARTPTS`,
-      '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14', '-pix_fmt', 'yuv420p', file);
+    ff('-ss', t.toFixed(3), '-t', len.toFixed(3), '-i', path.join(RUN, 'master.mkv'), '-vf', `crop=${BOX.w}:${BOX.h}:${BOX.x}:${BOX.y},scale=${W}:${gameH}:out_range=tv:out_color_matrix=bt709,fps=${FPS},setpts=PTS-STARTPTS`,
+      '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14', '-pix_fmt', 'yuv420p', HD_TAGS, file);
     return file;
   });
   fs.writeFileSync(path.join(WORK, `${kind}.txt`), parts.map((f) => `file '${f}'`).join('\n'));
@@ -254,7 +283,7 @@ async function montage(run, kind) {
     ev.push(`Dialogue: 0,${ts(t)},${ts(t + l)},Cap,,0,0,0,,{\\an5\\pos(540,${square ? 75 : 300})}${caption}`);
     const r = !square && scoreAt(mt + l);
     if (r) {
-      const cols = [['BADGES', `${r.badges}/14`], ['TOP LEVEL', `${Math.max(...r.party.map((p) => p[1]))}`], ['RANK', CM.title(r.alphas, r.champion) || '—']];
+      const cols = [['BADGES', `${r.badges}/14`], ['TOP LEVEL', topLevel(r.party)], ['RANK', CM.title(r.alphas, r.champion) || '—']];
       cols.forEach(([k, v], i) => {
         const x = 180 + i * 360;
         ev.push(`Dialogue: 0,${ts(t)},${ts(t + l)},Label,,0,0,0,,{\\an5\\pos(${x},1290)}${k}`);
@@ -279,31 +308,31 @@ Style: Big,${FONT},${square ? 40 : 64},&H00FFFFFF,&H0,&H0,&H0,1,0,0,0,100,100,0,
   ff('-f', 'lavfi', '-i', `color=c=0x1d2437:s=${W}x${H}:r=${FPS}:d=${len.toFixed(3)}`, '-i', joined, '-stream_loop', '-1', '-i', bed,
     '-filter_complex', `[0:v]drawbox=x=0:y=${gameY - 12}:w=${W}:h=6:color=0xe8384f:t=fill,drawbox=x=0:y=${gameY + gameH + 6}:w=${W}:h=6:color=0xe8384f:t=fill[bg];`
       + `[bg][1:v]overlay=0:${gameY}:shortest=1,ass=${ass}[v];[2:a]atrim=0:${len.toFixed(3)},afade=t=out:st=${(len - 1.2).toFixed(3)}:d=1.2,loudnorm=I=-14:TP=-1.5:LRA=11[a]`,
-    '-map', '[v]', '-map', '[a]', '-t', len.toFixed(3), '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-profile:v', 'high',
+    '-map', '[v]', '-map', '[a]', '-t', len.toFixed(3), '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-profile:v', 'high', HD_TAGS,
     '-c:a', 'aac', '-b:a', '256k', '-ar', '48000', '-movflags', '+faststart', out);
   return { len, clips };
 }
 
 function thumbnail(run) {
-  // A frame from the Champion battle if there is one, else the last Leader battle.
-  const l = run.find(/^Champion Vex: \.\.\.My unbeaten run ends here/)[0] || run.find(/^You received the \w+ Badge/).pop();
-  const t = l ? l.t - 6 : run.duration / 2;
+  // The Champion's last Creatamon just before the final blow, else the last Leader battle.
+  const blow = finalBlow(run), badge = run.find(/^You received the \w+ Badge/).pop();
+  const t = blow ? blow.t - 2 : badge ? badge.t - 6 : run.duration / 2;
   const ass = path.join(WORK, 'thumb.ass');
   fs.writeFileSync(ass, `[Script Info]\nScriptType: v4.00+\nPlayResX: 1280\nPlayResY: 720\n\n[V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Big,${FONT},92,&H00FFFFFF,&H0,&H00372419,&H0,1,0,0,0,100,100,2,0,1,8,0,5,0,0,0,1
 \n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:10.00,Big,,0,0,0,,{\\an5\\pos(640,600)}ONE RUN · NO CHEATS\n`);
-  ff('-ss', t.toFixed(3), '-i', path.join(RUN, 'master.mkv'), '-frames:v', '1', '-vf', `crop=${BOX.w}:${BOX.h}:${BOX.x}:${BOX.y},scale=1280:-1,crop=1280:720:0:(ih-720)/2,ass=${ass}`,
+  // The top of the game box, clear of the dialog box.
+  ff('-ss', t.toFixed(3), '-i', path.join(RUN, 'master.mkv'), '-frames:v', '1', '-vf', `crop=${BOX.w}:${BOX.h}:${BOX.x}:${BOX.y},scale=1280:-1,crop=1280:720:0:0,ass=${ass}`,
     '-q:v', '2', path.join(RUN, 'thumbnail.jpg'));
 }
 
 function notes(run, yt, short, x) {
   const final = run.samples[run.samples.length - 1] || {};
-  const top = final.party ? Math.max(...final.party.map((p) => p[1])) : 0;
   const title = CM.title(final.alphas, final.champion) || 'unranked';
   const md = `# Upload notes
 
-Final result: ${final.badges}/14 badges, top level ${top}, ${final.champion ? 'Champion beaten, ' : ''}rank ${title} (${final.alphas} alphas), ${final.wins} battles won, ${clock((final.play || 0) / 1000)} of play.
+Final result: ${final.badges}/14 badges, top level ${topLevel(final.party)}, ${final.champion ? 'Champion beaten, ' : ''}rank ${title} (${final.alphas} alphas), ${final.wins} battles won, ${clock((final.play || 0) / 1000)} of play.
 
 ## YouTube (youtube.mp4, ${clock(yt.cut.length)})
 

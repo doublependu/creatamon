@@ -125,6 +125,8 @@ async function main() {
     await page.screenshot({ path: path.join(out, 'crash.png') }).catch(() => {});
   }
   const S = game.last && game.last.save;
+  // The last change (often the very thing the run stopped for) can come between two samples.
+  log.sample(S);
   if (recorder) await recorder.stop();
   const audit = fairPlay(S);
   fs.writeFileSync(path.join(out, 'audit.json'), JSON.stringify({ reason, ...audit }, null, 2));
