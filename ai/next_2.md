@@ -1,8 +1,12 @@
 # Next 2: what prompt 2 changed, and what to do next
 
-Status: **the bot, the recorder and the video tools are done and tested; the final recording has not been made yet.**
-It waits for your commit, so the version label in the videos reads `v.xxxx` without `+` (plan_2, open question 7).
-After you commit: `npm run autoplay -- --record`, then `npm run video -- recordings/<date>`.
+Status: **the bot, the recorder and the video tools are done and tested. The final recording is made from the commit
+after `767cba2`**, as a fresh run from New Game. A first attempt (`recordings/2026-10-15-final`) was stopped at 51
+minutes and 5 badges: a recording can't pause, so it's kept only to test `npm run video` on real footage.
+
+The game is played at **https://cmon.maize.live**: the videos and `upload-notes.md` point there. That site still runs
+`v.c912` (from before prompt 1), so redeploy (`npm run deploy`) before posting the videos, or viewers will find a game
+without the Legendary and Mythic cards and this round's fixes.
 
 ## Done
 
@@ -97,9 +101,9 @@ Creatamon that never led stayed short of the level limit.
 
 ## Recommended next
 
-1. **Make the recording**: commit, then `npm run autoplay -- --record` (about 3½ hours, run it when the machine can be
-   left alone: other heavy work slows Chrome's frames). Then `npm run video -- recordings/<date>` (about an hour of
-   ffmpeg), watch the three videos, and upload with `upload-notes.md` (replace `<link>` once the site is deployed).
+1. **Finish the videos**: when the recording ends (about 3½ hours; heavy work on the machine meanwhile slows Chrome's
+   frames), `npm run video -- recordings/<date>-final` (about an hour of ffmpeg). Watch the three videos, redeploy the
+   site, and upload with `upload-notes.md`.
 2. **Alpha rank is cheap to farm on easy routes.** Every alpha counts the same, so the bot (like a player chasing
    rank) hunts level-16 alphas in the Wildlands with a level-76 team: 62 wins from Warlord I to Champion I took 45
    minutes. If rank should mean something, count only alphas near the level limit, or weight wins by level. A balance

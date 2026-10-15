@@ -23,6 +23,8 @@ const FPS = 60;
 // Where the game sits in the 1920x1080 recording (see play.mjs: the game box at its largest, centred).
 const BOX = { x: 330, y: 78, w: 1260, h: 924 };
 const FONT = 'Noto Sans';
+// Where the game is played.
+const SITE = 'cmon.maize.live';
 const ff = (...a) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a.flat()], { stdio: ['ignore', 'ignore', 'inherit'] });
 const probe = (file) => +execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file]).toString();
 const clock = (s) => { s = Math.max(0, Math.floor(s)); return `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}:` : ''}${String(Math.floor(s / 60) % 60).padStart(Math.floor(s / 3600) ? 2 : 1, '0')}:${String(s % 60).padStart(2, '0')}`; };
@@ -133,6 +135,8 @@ Style: Speed,${FONT},64,&H004F38E8,&H0,&H0,&H0,1,0,0,0,100,100,0,0,1,0,0,7,0,0,0
   // Left: the title, and which part of the story this is.
   put(0, end, 'Title', 36, 110, 'CREATAMON');
   put(0, end, 'Small', 38, 172, 'One run from New Game,\\Nplayed by a bot.\\NNo cheats, no cuts.');
+  put(0, end, 'Label', 38, 950, 'PLAY IT FREE');
+  put(0, end, 'Value', 38, 976, SITE);
   const chapters = chapterList(run, cut);
   chapters.forEach((c, i) => {
     const b = i + 1 < chapters.length ? chapters[i + 1].out : end;
@@ -260,7 +264,7 @@ async function montage(run, kind) {
     t += l;
   });
   ev.push(`Dialogue: 0,${ts(0)},${ts(len)},Brand,,0,0,0,,{\\an5\\pos(540,${square ? 1020 : 1620})}CREATAMON`);
-  ev.push(`Dialogue: 0,${ts(0)},${ts(len)},Note,,0,0,0,,{\\an5\\pos(540,${square ? 1060 : 1700})}One run · no cheats · free in your browser`);
+  ev.push(`Dialogue: 0,${ts(0)},${ts(len)},Note,,0,0,0,,{\\an5\\pos(540,${square ? 1060 : 1700})}One run · no cheats · play free at ${SITE}`);
   const ass = path.join(WORK, `${kind}.ass`);
   fs.writeFileSync(ass, `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\n\n[V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
@@ -309,7 +313,7 @@ Final result: ${final.badges}/14 badges, top level ${top}, ${final.champion ? 'C
 
 One continuous run of Creatamon, a creature-battling RPG where you build your team from Power Cards. A script plays it like a person would: keyboard and mouse only, no cheats, no developer tools, and never the secret character. Nothing is cut: the slow stretches are sped up (the ×N in the corner), and the key battles play at real speed. The scoreboard on the right comes from the game's own save.
 
-Play it free in your browser: <link>
+Play it free in your browser: https://${SITE}
 
 ${yt.chapters.map((c) => `${clock(c.out)} ${c.name}`).join('\n')}
 
@@ -319,7 +323,7 @@ ${yt.chapters.map((c) => `${clock(c.out)} ${c.name}`).join('\n')}
 
 ## X (x.mp4, ${x ? x.len.toFixed(1) : '-'} s)
 
-A bot plays Creatamon from New Game to ${final.champion ? 'Champion' : `${final.badges} badges`}: one run, keyboard only, no cheats. Free in your browser: <link>
+A bot plays Creatamon from New Game to ${final.champion ? 'Champion' : `${final.badges} badges`}: one run, keyboard only, no cheats. Free in your browser: https://${SITE}
 `;
   fs.writeFileSync(path.join(RUN, 'upload-notes.md'), md);
 }

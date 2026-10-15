@@ -39,8 +39,9 @@ uncommitted changes, untracked files included.
 
 ## Play
 
-Run `npm run dev` and open the address it prints, or play the deployed site. Opening `index.html` straight from disk no
-longer works, because browsers do not load JavaScript modules from `file://`. Progress saves automatically in the browser.
+Play it at **https://cmon.maize.live**, or run `npm run dev` and open the address it prints. Opening `index.html`
+straight from disk no longer works, because browsers do not load JavaScript modules from `file://`. Progress saves
+automatically in the browser.
 
 | Key | Action |
 | --- | --- |
